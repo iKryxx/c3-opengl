@@ -14,3 +14,6 @@ build/
 # Dotfiles
 .projectile
 AGENTS.md
+
+# Runtime assets
+assets/

@@ -1,7 +1,6 @@
 module engine::math::mat4 {Type};
 import engine::math::vec3;
 import std::math;
-import std::io; //TODO: remove
 
 
 struct Mat4 {
@@ -135,8 +134,9 @@ fn Mat4f perspective(
 
 fn Mat4f look_at(Vec3f eye, Vec3f target, Vec3f up) {
     Vec3f f = Vec3.normalize(target - eye);
-    Vec3f s = Vec3.normalize(f.cross(up));
-    Vec3f u = s.cross(f);
+    // Ensure a right-handed basis: right comes from up x forward, not the other way around.
+    Vec3f s = Vec3.normalize(up.cross(f));
+    Vec3f u = f.cross(s);
     
     Mat4f out = {
 	s.x,          u.x,       -f.x,        0,

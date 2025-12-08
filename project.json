@@ -3,10 +3,10 @@
   "warnings":  [ "no-unused" ],
   "dependency-search-paths":  [ "lib" ],
   "dependencies":  [ "opengl", "glfw" ],
-  "authors":  [ "John Doe <john.doe@example.com>" ],
+  "authors":  [ "Janik Stojan <ikryxxdev@gmail.com>" ],
   "version": "0.1.0",
   "sources":  [ "src/**" ],
-  "test-sources":  [ "test/**" ],
+   "test-sources":  [ "test/**" ],
   "build-dir": "build",
   "output": "build",
   "targets": {

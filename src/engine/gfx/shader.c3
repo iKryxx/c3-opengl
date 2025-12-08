@@ -1,8 +1,8 @@
 module shader;
 
 import opengl::gl;
-import std::io;
 import engine::math;
+import engine::core;
 
 faultdef SHADER_COMPILATION_FAILED;
 
@@ -21,13 +21,13 @@ fn uint? compile(GLenum shadertype, char** src) {
     int success;
     gl::getShaderiv(id, gl::GL_COMPILE_STATUS, &success);
 
-    if(!success) {
-	GLsizei len;
-	char[512] infoLog;
-	gl::getShaderInfoLog(id, 512, &len, &infoLog);
-	io::eprintfn("SHADER ERROR: %s", (String)infoLog[:len]);
-	return SHADER_COMPILATION_FAILED?;
-    }
+	if(!success) {
+	    GLsizei len;
+	    char[512] infoLog;
+	    gl::getShaderInfoLog(id, 512, &len, &infoLog);
+	    core::log(core::LOGLEVEL_ERROR, "SHADER ERROR: %s", (String)infoLog[:len]);
+	    return SHADER_COMPILATION_FAILED?;
+	}
 
     return id;
 }
@@ -66,4 +66,3 @@ fn void Shader.set_mat4(self, ZString name, Mat4f m) {
     int loc = gl::getUniformLocation(self.id, name);
     gl::uniformMatrix4fv(loc, 1, (GLboolean)false, (float[])&m.inner);
 }
-

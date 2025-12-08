@@ -1,6 +1,6 @@
 module engine::platform;
 
-import std::io;
+import engine::core;
 import opengl::gl;
 import glfw;
 
@@ -19,7 +19,7 @@ GlfwWindow* g_window = null;
 WindowConfig g_config;
 
 fn void glfw_error_callback(int code, char* message) @private {
-    io::printfn("[GLFW ERROR] (%d): %s", code, message);
+    core::log(core::LOGLEVEL_ERROR, "(%d): %s", code, message);
 }
 
 
@@ -32,6 +32,15 @@ fn void glfw_error_callback(int code, char* message) @private {
 fn void? init(WindowConfig cfg) {
     g_config = cfg;
 
+    // Setup engine config
+    core::g_cfg = {};
+    if($feature(DEBUG)) {
+	core::g_cfg.log_level |=
+	core::LOGLEVEL_LOG | core::LOGLEVEL_INFO | core::LOGLEVEL_WARNING | core::LOGLEVEL_ERROR;
+    } else {
+	core::g_cfg.log_level |= core::LOGLEVEL_WARNING | core::LOGLEVEL_ERROR;
+    }
+    
     glfw::setErrorCallback((GlfwErrorFn)&glfw_error_callback);
 
     if(glfw::init() == 0) {
@@ -72,7 +81,11 @@ fn void? init(WindowConfig cfg) {
     if(catch excuse = init_gl()) {
 	return GL_INIT_ERROR?;
     }
-    
+
+    gl::frontFace(GL_CCW);
+    gl::enable(GL_DEPTH_TEST);
+    gl::depthFunc(GL_LEQUAL);
+    gl::enable(GL_CULL_FACE);
     int fbw;
     int fbh;
     glfw::getFramebufferSize(g_window, &fbw, &fbh);
@@ -90,8 +103,8 @@ fn void? init_gl()
 
     char* renderer = gl::getString(gl::GL_RENDERER);
     char* version = gl::getString(gl::GL_VERSION);
-    io::printfn("Renderer: %s", (ZString)renderer);
-    io::printfn("Version: %s", (ZString)version);
+    core::log(core::LOGLEVEL_INFO, "Renderer: %s", (ZString)renderer);
+    core::log(core::LOGLEVEL_INFO, "Version: %s", (ZString)version);
 }
 
 <*
@@ -139,4 +152,3 @@ fn void shutdown() {
     }
     glfw::terminate();
 }
-

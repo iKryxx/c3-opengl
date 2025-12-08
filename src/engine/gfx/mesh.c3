@@ -1,6 +1,5 @@
 module engine::gfx;
 
-import std::io;//TODO: Remove
 import opengl::gl;
 import glfw;
 
@@ -9,11 +8,11 @@ struct Mesh {
     int count;
 }
 
-fn Mesh Mesh.make(self, float[] verticies, int floats_stride) {
+fn Mesh Mesh.make(self, float[] verticies, uint[] indices, int floats_stride) {
     uint vao;
     uint vbo;
+    uint ebo;
 
-    io::printfn("Test: [%s]", verticies);
     gl::genVertexArrays(1, &vao);
     gl::bindVertexArray(vao);
 
@@ -26,22 +25,40 @@ fn Mesh Mesh.make(self, float[] verticies, int floats_stride) {
 	verticies,
 	GL_STATIC_DRAW);
 
+    gl::genBuffers(1, &ebo);
+    gl::bindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    gl::bufferData(GL_ELEMENT_ARRAY_BUFFER,
+        indices.len * uint.sizeof,
+        indices,
+        GL_STATIC_DRAW);
+
+    GLsizei stride_bytes = floats_stride * float.sizeof;
+    
     gl::enableVertexAttribArray(0);
     gl::vertexAttribPointer(
-	0,
-	3,
-	GL_FLOAT,
-	(GLboolean)false,
-	floats_stride * float.sizeof,
-	(void*)0);
+	0, 3, GL_FLOAT, (GLboolean)false,
+	stride_bytes,
+	(void*)0
+    );
 
+    gl::enableVertexAttribArray(1);
+    gl::vertexAttribPointer(
+	1, 3, GL_FLOAT, (GLboolean)false,
+	stride_bytes,
+	(void*)(3 * float.sizeof)
+    );
 
-    io::printfn("count: %d stride: %d", verticies.len, floats_stride);
-    self = {.vao = vao, .count = verticies.len / floats_stride};
+    gl::enableVertexAttribArray(2);
+    gl::vertexAttribPointer(
+	2, 2, GL_FLOAT, (GLboolean)false,
+	stride_bytes,
+	(void*)(6 * float.sizeof)
+    );
+    self = {.vao = vao, .count = indices.len};
     return self;
 }
 
 fn void Mesh.draw(self) {
     gl::bindVertexArray(self.vao);
-    gl::drawArrays(GL_TRIANGLES, 0, self.count);
+    gl::drawElements(GL_TRIANGLES, self.count, GL_UNSIGNED_INT, (void*)0);
 }

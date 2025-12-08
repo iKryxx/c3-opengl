@@ -1,15 +1,17 @@
 module game::app;
 
 import shader;
-import std::io;
 import glfw;
 import engine::platform;
 import engine::gfx;
 import engine::math;
+import engine::core;
 
 import opengl::gl;
 
 Shader c_shader;
+Texture[100] c_textures;
+
 <*
  @require key >= 0, key < platform::KEY_COUNT
 *>
@@ -50,6 +52,15 @@ fn void cursor_input_callback(GlfwWindow* window,
     platform::g_mouse_y = new_y;
 }
 
+fn void load_textures() {
+    c_textures[0] = gfx::texture_load_tga("assets/dirt.tga");
+
+    for(int i = 0; i < c_textures.len; i++) {
+	Texture tex = c_textures[i];
+	tex.use(i);
+    }
+}
+
 fn int m_loop(WindowConfig cfg) {
     Mesh cube;
     cube = cube.make_cube();
@@ -58,7 +69,7 @@ fn int m_loop(WindowConfig cfg) {
 
     gl::enable(GL_DEPTH_TEST);
 
-    Vec3f eye = {0.0f, 5.0f, -5.0f};
+    Vec3f eye = {0.0f, 2.0f, -5.0f};
     while(!platform::should_close()) {
 	int[<2>] framebuffer_size = platform::framebuffer_size();
 
@@ -69,7 +80,6 @@ fn int m_loop(WindowConfig cfg) {
 	Vec3f center = {0.0f, 0.0f, 0.0f};
 	Vec3f up = {0.0f, 1.0f, 0.0f};
 
-	// TODO: Structurise this
 	Mat4f view = mat4::look_at(eye, center, up);
 	
 	float aspect = (float)cfg.width / (float)cfg.height;
@@ -81,11 +91,9 @@ fn int m_loop(WindowConfig cfg) {
 	c_shader.set_mat4("proj", proj);
 	c_shader.set_mat4("model", model);
 
-	
+
 	cube.draw();
-	angle += 0.001f;
-	
-	// TODO: RENDERING
+	angle += 0.0001f;
 
 	if(platform::is_key_down(platform::Key.KEY_ESCAPE)) {
 	    glfw::setWindowShouldClose(platform::g_window, 1);
@@ -99,7 +107,7 @@ fn int m_loop(WindowConfig cfg) {
 
 fn int start(WindowConfig cfg) {
     if(catch excuse = platform::init(cfg)) {
-	io::eprintfn("Failed to initialize function: %s", excuse);
+	core::log(core::LOGLEVEL_ERROR, "Failed to initialize function: %s", excuse);
 	return 1;
     }
 
@@ -111,6 +119,7 @@ fn int start(WindowConfig cfg) {
 				   &key_input_callback,
 				   &cursor_input_callback);
 
+    load_textures();
     int exit_code = m_loop(cfg);
     
     
