@@ -10,3 +10,7 @@ build/
 */##
 *.swp
 .DS_Store
+
+# Dotfiles
+.projectile
+AGENTS.md
