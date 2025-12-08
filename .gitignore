@@ -1,0 +1,10 @@
+# Build outputs
+build/
+*.o
+*.obj
+*.exe
+
+# Editor/backup files
+*~
+*.swp
+.DS_Store
