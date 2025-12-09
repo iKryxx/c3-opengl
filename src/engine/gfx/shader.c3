@@ -66,3 +66,8 @@ fn void Shader.set_mat4(self, ZString name, Mat4f m) {
     int loc = gl::getUniformLocation(self.id, name);
     gl::uniformMatrix4fv(loc, 1, (GLboolean)false, (float[])&m.inner);
 }
+
+fn void Shader.set_float(self, ZString name, float f) {
+    int loc = gl::getUniformLocation(self.id, name);
+    gl::uniform1fv(loc, 1, &f);
+}

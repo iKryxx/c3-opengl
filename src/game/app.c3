@@ -1,16 +1,18 @@
 module game::app;
 
 import shader;
+import std::io;
 import glfw;
 import engine::platform;
 import engine::gfx;
 import engine::math;
-import engine::core;
 
 import opengl::gl;
+import engine::core;
 
 Shader c_shader;
 Texture[100] c_textures;
+TextureArray arr;
 
 <*
  @require key >= 0, key < platform::KEY_COUNT
@@ -53,17 +55,27 @@ fn void cursor_input_callback(GlfwWindow* window,
 }
 
 fn void load_textures() {
-    c_textures[0] = gfx::texture_load_tga("assets/dirt.tga");
+   
+    String[] paths = {
+	"assets/blocks/dirt.tga",
+	"assets/blocks/grass_top.tga",
+	"assets/blocks/grass_side.tga"
+    };
 
-    for(int i = 0; i < c_textures.len; i++) {
-	Texture tex = c_textures[i];
-	tex.use(i);
+    arr = gfx::texture_array_create(16, 16, paths.len);
+    for(int i = 0; i < paths.len; i++) {
+	String curr = paths[i];
+
+	Texture tex = gfx::texture_load_tga(curr);
+	c_textures[i] = tex;
+	arr.set(i, tex.pixels);
+	
     }
 }
 
 fn int m_loop(WindowConfig cfg) {
     Mesh cube;
-    cube = cube.make_cube();
+    cube = cube.make_cube({2, 2, 2, 2, 1, 0});
     
     float angle = 0.0f;
 
@@ -80,20 +92,25 @@ fn int m_loop(WindowConfig cfg) {
 	Vec3f center = {0.0f, 0.0f, 0.0f};
 	Vec3f up = {0.0f, 1.0f, 0.0f};
 
+	// TODO: Structurise this
 	Mat4f view = mat4::look_at(eye, center, up);
 	
 	float aspect = (float)cfg.width / (float)cfg.height;
 	Mat4f proj = mat4::perspective(70 * 0.01745329251, aspect, 0.1, 1000);
 	Mat4f model = mat4::rotation_y(angle);
-	
+
 	c_shader.use();
+	arr.bind(0);
+	c_shader.set_float("u_Textures", 0);
 	c_shader.set_mat4("view", view);
 	c_shader.set_mat4("proj", proj);
 	c_shader.set_mat4("model", model);
 
-
+	
 	cube.draw();
 	angle += 0.0001f;
+	
+	// TODO: RENDERING
 
 	if(platform::is_key_down(platform::Key.KEY_ESCAPE)) {
 	    glfw::setWindowShouldClose(platform::g_window, 1);
@@ -107,7 +124,7 @@ fn int m_loop(WindowConfig cfg) {
 
 fn int start(WindowConfig cfg) {
     if(catch excuse = platform::init(cfg)) {
-	core::log(core::LOGLEVEL_ERROR, "Failed to initialize function: %s", excuse);
+	io::eprintfn("Failed to initialize function: %s", excuse);
 	return 1;
     }
 

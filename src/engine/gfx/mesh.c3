@@ -33,7 +33,8 @@ fn Mesh Mesh.make(self, float[] verticies, uint[] indices, int floats_stride) {
         GL_STATIC_DRAW);
 
     GLsizei stride_bytes = floats_stride * float.sizeof;
-    
+
+    /* Position (location = 0) */
     gl::enableVertexAttribArray(0);
     gl::vertexAttribPointer(
 	0, 3, GL_FLOAT, (GLboolean)false,
@@ -41,6 +42,7 @@ fn Mesh Mesh.make(self, float[] verticies, uint[] indices, int floats_stride) {
 	(void*)0
     );
 
+    /* Normals (location = 1) */
     gl::enableVertexAttribArray(1);
     gl::vertexAttribPointer(
 	1, 3, GL_FLOAT, (GLboolean)false,
@@ -48,12 +50,22 @@ fn Mesh Mesh.make(self, float[] verticies, uint[] indices, int floats_stride) {
 	(void*)(3 * float.sizeof)
     );
 
+    /* UV (location = 2) */
     gl::enableVertexAttribArray(2);
     gl::vertexAttribPointer(
 	2, 2, GL_FLOAT, (GLboolean)false,
 	stride_bytes,
 	(void*)(6 * float.sizeof)
     );
+
+    /* Texture ID (location = 3) */
+    gl::enableVertexAttribArray(3);
+    gl::vertexAttribPointer(
+	3, 1, GL_FLOAT, (GLboolean)false,
+	stride_bytes,
+	(void*)(8 * float.sizeof)
+    );
+    
     self = {.vao = vao, .count = indices.len};
     return self;
 }

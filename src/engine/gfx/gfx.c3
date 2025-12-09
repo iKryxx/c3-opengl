@@ -6,10 +6,17 @@ import engine::core;
 import std::io;
 
 struct Texture {
-    uint id;
     int width;
     int height;
     int components;
+    char[] pixels;
+}
+
+struct TextureArray {
+    uint id;
+    int width;
+    int height;
+    int layers;
 }
 
 struct TGAHeader @packed @nopadding {
@@ -30,21 +37,7 @@ struct TGAHeader @packed @nopadding {
     char image_desc;
 }
 
-/*
-id_length: 0,
-color_map_type: 0,
-data_type: 2,
-color_map_origin: 0, 0,
-color_map_type: 0, 0,
-color_map_depth: 0, 0,
-origin_x: 0, 0,
-origin_y: 0, 16,
-width: 0, 16,
-height: 0, 32,
-pixel_depth: 40, 92, 133, 185, 255, 74, 108, 150, 255, 74, 108, 150, 255, 58, 85, 121, 255, 58, 85, 121, 255, 92, 133, 185, 255, 74, 108, 150, 255, 74, 108, 150, 255, 58, 85, 121, 255, 58, 85, 121, 255, 41, 61, 89, 255, 58, 85, 121, 255, 58, 85, 121, 255, 92, 133, 185, 255, 58, 85, 121, 255, 92, 133, 185, 255, 58, 85, 121, 255, 74, 108, 150, 255, 41, 61, 89, 255, 58, 85, 121, 255, 58, 85, 121, 255, 74, 108, 150, 255, 135, 135,
-*/
-
-fn char[]? read_file(String filename, char[] buffer)
+fn char[]? read_file(String filename, char[] buffer) @private
 {
     File file = file::open(filename, "r")!;
 
@@ -59,14 +52,12 @@ fn Texture texture_load_tga(String path) {
     char[4096] bytes;
     if(catch excuse = read_file(path, &bytes)) {
 	core::log(core::LOGLEVEL_WARNING, "Failed to load texture file %s: %s", path, excuse);
-	return {.id = 0};
+	return { };
     }
 
-    //core::log(core::LOGLEVEL_LOG, "%s", bytes);
-    
     if(bytes.len < 18) {
 	core::log(core::LOGLEVEL_WARNING, "Failed to load texture file %s: file to small", path);
-	return {.id = 0};
+	return { };
     }
 
     
@@ -78,13 +69,13 @@ fn Texture texture_load_tga(String path) {
     
     if(!(bpp == 24 || bpp == 32)) {
 	core::log(core::LOGLEVEL_WARNING, "Failed to load texture file %s: unsupported bpp %d", path, bpp);
-	return {.id = 0};
+	return {  };
     }
 
     if (hdr.data_type != 2) // 2 = uncompressed true-color
     {
         core::log(core::LOGLEVEL_WARNING, "Failed to load texture file %s: only uncompressed RGB(A) supported", path);
-        return {.id = 0};
+        return {  };
     }
 
     int pixel_size = bpp / 8;
@@ -96,31 +87,44 @@ fn Texture texture_load_tga(String path) {
     if(offset + (long)image_size > bytes.len)
     {
 	core::log(core::LOGLEVEL_WARNING, "Failed to load texture file %s: image data out of bounds", path);
-        return {.id = 0};
+        return {  };
     }
 
     char[4096] pixels;
+    bool flip_vertical = (hdr.image_desc & 0x20) != 0; // TGA top-left origin flag
+    int row_stride = width * pixel_size;
 
-    for(int i = 0; i < image_size; i += pixel_size) {
-	char b = bytes[offset + i + 0];
-	char g = bytes[offset + i + 1];
-	char r = bytes[offset + i + 2];
+    for(int y = 0; y < height; ++y) {
+	int src_y = flip_vertical ? (height - 1 - y) : y;
+	int src_base = offset + src_y * row_stride;
+	int dst_base = y * row_stride;
+	for(int x = 0; x < row_stride; x += pixel_size) {
+	    char b = bytes[src_base + x + 0];
+	    char g = bytes[src_base + x + 1];
+	    char r = bytes[src_base + x + 2];
 
-	if(pixel_size == 3) {
-	    pixels[i + 0] = r;
-	    pixels[i + 1] = g;
-	    pixels[i + 2] = b;
-	} else {
-	    char a = bytes[offset + i + 3];
-	    pixels[i + 0] = r;
-	    pixels[i + 1] = g;
-	    pixels[i + 2] = b;
-	    pixels[i + 3] = a;
+	    if(pixel_size == 3) {
+		pixels[dst_base + x + 0] = r;
+		pixels[dst_base + x + 1] = g;
+		pixels[dst_base + x + 2] = b;
+	    } else {
+		char a = bytes[src_base + x + 3];
+		pixels[dst_base + x + 0] = r;
+		pixels[dst_base + x + 1] = g;
+		pixels[dst_base + x + 2] = b;
+		pixels[dst_base + x + 3] = a;
+	    }
 	}
     }
 
+    return {
+	.width = width,
+	.height = height,
+	.components = pixel_size,
+	.pixels = &pixels,
+    };
     // Upload to GL
-
+    /*  
     uint tex;
     gl::genTextures(1, &tex);
 
@@ -138,18 +142,53 @@ fn Texture texture_load_tga(String path) {
 	GL_UNSIGNED_BYTE,
 	pixels[..]
     );
+    */
+}
+
+fn TextureArray texture_array_create(int width, int height, int layers) {
+    uint tex;
+    gl::genTextures(1, &tex);
+
+    gl::bindTexture(GL_TEXTURE_2D_ARRAY, tex);
+
+    gl::texParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    gl::texParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    gl::texImage3D(
+	GL_TEXTURE_2D_ARRAY, 0,
+	GL_RGBA,
+	width, height, layers,
+	0,
+	GL_RGBA,
+	GL_UNSIGNED_BYTE,
+	null
+    );
 
     return {
 	.id = tex,
 	.width = width,
 	.height = height,
-	.components = pixel_size
+	.layers = layers
     };
 }
 
-fn void Texture.use(&self, int slot) {
+fn void TextureArray.set(&self, int layer, char[] pixels) {
+    gl::bindTexture(GL_TEXTURE_2D_ARRAY, self.id);
+
+    gl::texSubImage3D(
+	GL_TEXTURE_2D_ARRAY,
+	0,
+	0, 0, layer,
+	self.width, self.height, 1,
+	GL_RGBA,
+	GL_UNSIGNED_BYTE,
+	pixels
+    );
+}
+
+fn void TextureArray.bind(&self, int slot) {
     gl::activeTexture((GLenum)(GL_TEXTURE0 + slot));
-    gl::bindTexture(GL_TEXTURE_2D, self.id);
+    gl::bindTexture(GL_TEXTURE_2D_ARRAY, self.id);
 }
 
 <*
