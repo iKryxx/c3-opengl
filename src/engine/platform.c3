@@ -19,7 +19,7 @@ GlfwWindow* g_window = null;
 WindowConfig g_config;
 
 fn void glfw_error_callback(int code, char* message) @private {
-    core::log(core::LOGLEVEL_ERROR, "(%d): %s", code, message);
+    core::error("(%d): %s", code, message);
 }
 
 
@@ -103,8 +103,8 @@ fn void? init_gl()
 
     char* renderer = gl::getString(gl::GL_RENDERER);
     char* version = gl::getString(gl::GL_VERSION);
-    core::log(core::LOGLEVEL_INFO, "Renderer: %s", (ZString)renderer);
-    core::log(core::LOGLEVEL_INFO, "Version: %s", (ZString)version);
+    core::info("Renderer: %s", (ZString)renderer);
+    core::info("Version: %s", (ZString)version);
 }
 
 <*

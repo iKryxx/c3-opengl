@@ -25,7 +25,7 @@ fn uint? compile(GLenum shadertype, char** src) {
 	    GLsizei len;
 	    char[512] infoLog;
 	    gl::getShaderInfoLog(id, 512, &len, &infoLog);
-	    core::log(core::LOGLEVEL_ERROR, "SHADER ERROR: %s", (String)infoLog[:len]);
+	    core::error("SHADER ERROR: %s", (String)infoLog[:len]);
 	    return SHADER_COMPILATION_FAILED?;
 	}
 

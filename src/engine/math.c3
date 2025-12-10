@@ -1,4 +1,5 @@
 module engine::math;
+import std::collections::list;
 
 faultdef DIVIDING_BY_ZERO_ERROR;
 
@@ -16,4 +17,7 @@ alias Mat4f = Mat4 {float};
 alias Mat4d = Mat4 {double};
 alias Mat4i = Mat4 {int};
 alias Mat4l = Mat4 {long};
+
+alias Listf = List {float};
+alias Listui = List {uint};
  

@@ -1,5 +1,5 @@
 module engine::gfx;
-
+import engine::core;
 import engine::math;
 
 const ZString CUBE_VS =
@@ -62,6 +62,8 @@ struct CubeTexture {
     }
 }
 
+const int CUBE_FLOAT_STRIDE = 9;
+
 const float[*] CUBE_VERTICIES @private = {
     // Positions (x,y,z) normals(x, y, z) uv(x, y) texid(id)
 
@@ -111,17 +113,32 @@ const uint[*] CUBE_INDICES @private = {
     20,22,21, 22,20,23      // bottom
 };
 
+fn float[CUBE_FLOAT_STRIDE * 4] get_cube_face_vert(int face) {
+    //core::log("len: %d\nval: %d", CUBE_VERTICIES.len, face * CUBE_FLOAT_STRIDE  * 4 + CUBE_FLOAT_STRIDE * 4);
+    //core::log("Slice before return: %s", CUBE_VERTICIES[face * CUBE_FLOAT_STRIDE  * 4 : CUBE_FLOAT_STRIDE * 4]);
 
-fn Mesh Mesh.make_cube(self, CubeTexture texture) {
+    float[CUBE_FLOAT_STRIDE * 4] ret = CUBE_VERTICIES[face * CUBE_FLOAT_STRIDE  * 4 : CUBE_FLOAT_STRIDE * 4];
+    return ret;
+}
+
+fn uint[6] get_cube_face_idx(int face) {
+    //core::log("Slice before return: %s", CUBE_VERTICIES[face * 6 : 6]);
+    uint[6] ret = CUBE_INDICES[face * 6 : 6];
+
+    return ret;
+}
+
+
+fn void Mesh.make_cube(self, CubeTexture texture) {
     float[CUBE_VERTICIES.len] verts = CUBE_VERTICIES;
     uint v_idx = 8;
     
     for(int i = 0; i < texture.inner.len; i++) {
 	for(int j = 0; j < 4; j++) {
 	    verts[v_idx] = texture.inner[i];
-	    v_idx += 9; 
+	    v_idx += CUBE_FLOAT_STRIDE; 
 	}
     }
     
-    return self.make(&verts, &CUBE_INDICES, 9);  
+    self.make(&verts, &CUBE_INDICES, CUBE_FLOAT_STRIDE);  
 }

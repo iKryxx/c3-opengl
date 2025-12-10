@@ -1,23 +1,29 @@
 module engine::gfx;
 
+import std::io;
+import engine::core;
 import opengl::gl;
 import glfw;
 
 struct Mesh {
     uint vao;
+    uint vbo;
+    uint ebo;
     int count;
 }
 
-fn Mesh Mesh.make(self, float[] verticies, uint[] indices, int floats_stride) {
-    uint vao;
-    uint vbo;
-    uint ebo;
+fn void Mesh.regenerate_buffers(&self) {
+    if(self.vao == 0) gl::genVertexArrays(1, &self.vao);
+    if(self.vbo == 0) gl::genBuffers(1, &self.vbo);
+    if(self.ebo == 0) gl::genBuffers(1, &self.ebo);
+}
 
-    gl::genVertexArrays(1, &vao);
-    gl::bindVertexArray(vao);
+fn void Mesh.make(&self, float[] verticies, uint[] indices, int floats_stride) {
+    core::log(" LENGTHSSS %d %d", verticies.len, indices.len);
 
-    gl::genBuffers(1, &vbo);
-    gl::bindBuffer(GL_ARRAY_BUFFER, vbo);
+    self.regenerate_buffers();
+    gl::bindVertexArray(self.vao);
+    gl::bindBuffer(GL_ARRAY_BUFFER, self.vbo);
 
     gl::bufferData(
 	GL_ARRAY_BUFFER,
@@ -25,8 +31,7 @@ fn Mesh Mesh.make(self, float[] verticies, uint[] indices, int floats_stride) {
 	verticies,
 	GL_STATIC_DRAW);
 
-    gl::genBuffers(1, &ebo);
-    gl::bindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    gl::bindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo);
     gl::bufferData(GL_ELEMENT_ARRAY_BUFFER,
         indices.len * uint.sizeof,
         indices,
@@ -66,9 +71,9 @@ fn Mesh Mesh.make(self, float[] verticies, uint[] indices, int floats_stride) {
 	(void*)(8 * float.sizeof)
     );
     
-    self = {.vao = vao, .count = indices.len};
-    return self;
+    self.count = indices.len;
 }
+
 
 fn void Mesh.draw(self) {
     gl::bindVertexArray(self.vao);

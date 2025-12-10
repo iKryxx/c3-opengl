@@ -48,15 +48,15 @@ fn char[]? read_file(String filename, char[] buffer) @private
 }
 
 fn Texture texture_load_tga(String path) {
-    core::log(core::LOGLEVEL_LOG, "Begin loading texture: %s", path);
+    core::log("Begin loading texture: %s", path);
     char[4096] bytes;
     if(catch excuse = read_file(path, &bytes)) {
-	core::log(core::LOGLEVEL_WARNING, "Failed to load texture file %s: %s", path, excuse);
+	core::warning("Failed to load texture file %s: %s", path, excuse);
 	return { };
     }
 
     if(bytes.len < 18) {
-	core::log(core::LOGLEVEL_WARNING, "Failed to load texture file %s: file to small", path);
+	core::warning("Failed to load texture file %s: file to small", path);
 	return { };
     }
 
@@ -68,13 +68,13 @@ fn Texture texture_load_tga(String path) {
     int bpp = hdr.pixel_depth;
     
     if(!(bpp == 24 || bpp == 32)) {
-	core::log(core::LOGLEVEL_WARNING, "Failed to load texture file %s: unsupported bpp %d", path, bpp);
+	core::warning("Failed to load texture file %s: unsupported bpp %d", path, bpp);
 	return {  };
     }
 
     if (hdr.data_type != 2) // 2 = uncompressed true-color
     {
-        core::log(core::LOGLEVEL_WARNING, "Failed to load texture file %s: only uncompressed RGB(A) supported", path);
+        core::warning("Failed to load texture file %s: only uncompressed RGB(A) supported", path);
         return {  };
     }
 
@@ -86,7 +86,7 @@ fn Texture texture_load_tga(String path) {
 
     if(offset + (long)image_size > bytes.len)
     {
-	core::log(core::LOGLEVEL_WARNING, "Failed to load texture file %s: image data out of bounds", path);
+	core::warning("Failed to load texture file %s: image data out of bounds", path);
         return {  };
     }
 

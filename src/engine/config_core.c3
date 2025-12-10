@@ -24,7 +24,7 @@ fn void print_level(CInt level) @private{
     }
 }
 
-fn void log(LogLevel level, String fmt, args...) @format(1) {
+fn void _log(LogLevel level, String fmt, args...) @format(1) @private {
     if(!((int)level & g_cfg.log_level)) return;
     print_level(level);
     io::printfn(fmt, ...args);
@@ -32,5 +32,26 @@ fn void log(LogLevel level, String fmt, args...) @format(1) {
 	abort();
     }
 }
+
+fn void log(String fmt, args...) @format(0) {
+    _log(LOGLEVEL_LOG, fmt, ...args);
+}
+fn void info(String fmt, args...) @format(0) {
+    _log(LOGLEVEL_INFO, fmt, ...args);
+}
+fn void warning(String fmt, args...) @format(0) {
+    _log(LOGLEVEL_WARNING, fmt, ...args);
+}
+fn void error(String fmt, args...) @format(0) {
+    _log(LOGLEVEL_ERROR, fmt, ...args);
+}
+
+fn void to_file(String path, String fmt, args...) @format(1) {
+    File f = file::open(path, "wb")!!;
+
+
+    io::fprintf((OutStream)&f, fmt, ...args)!!;
+}
+
 
 

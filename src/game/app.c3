@@ -6,13 +6,16 @@ import glfw;
 import engine::platform;
 import engine::gfx;
 import engine::math;
-
+import game::world;
 import opengl::gl;
 import engine::core;
 
+World world;
 Shader c_shader;
 Texture[100] c_textures;
 TextureArray arr;
+GLfloat delta_time = 0.0f;
+GLfloat last_frame = 0.0f;
 
 <*
  @require key >= 0, key < platform::KEY_COUNT
@@ -73,18 +76,23 @@ fn void load_textures() {
     }
 }
 
+fn void update_dt() {
+    GLfloat current_frame = (GLfloat)glfw::getTime();
+    delta_time = current_frame - last_frame;
+    last_frame = current_frame;
+}
+
 fn int m_loop(WindowConfig cfg) {
-    Mesh cube;
-    cube = cube.make_cube({2, 2, 2, 2, 1, 0});
+    //Mesh cube;
+    //cube = cube.make_cube({2, 2, 2, 2, 1, 0});
     
-    float angle = 0.0f;
-
     gl::enable(GL_DEPTH_TEST);
-
-    Vec3f eye = {0.0f, 2.0f, -5.0f};
+       
+    Vec3f eye = {0.0f, 20.0f, -5.0f};
     while(!platform::should_close()) {
 	int[<2>] framebuffer_size = platform::framebuffer_size();
 
+	update_dt();
 	platform::poll_events();
 	gfx::clear();
 
@@ -93,11 +101,11 @@ fn int m_loop(WindowConfig cfg) {
 	Vec3f up = {0.0f, 1.0f, 0.0f};
 
 	// TODO: Structurise this
-	Mat4f view = mat4::look_at(eye, center, up);
 	
 	float aspect = (float)cfg.width / (float)cfg.height;
 	Mat4f proj = mat4::perspective(70 * 0.01745329251, aspect, 0.1, 1000);
-	Mat4f model = mat4::rotation_y(angle);
+	Mat4f model = mat4::identity();
+	Mat4f view = mat4::look_at(eye, eye + (Vec3f){0.0, -0.25, 1.0}, up);
 
 	c_shader.use();
 	arr.bind(0);
@@ -106,14 +114,42 @@ fn int m_loop(WindowConfig cfg) {
 	c_shader.set_mat4("proj", proj);
 	c_shader.set_mat4("model", model);
 
-	
-	cube.draw();
-	angle += 0.0001f;
-	
+
+	//foreach (chunk : world.chunks)
+	for(int i = 0; i < world.chunks.len; i++)
+	{
+	    Chunk* chunk = world.chunks[i];
+	    if(chunk == null) continue;
+	    if(chunk.dirty) chunk.generate_chunk_mesh();
+	    chunk.dirty = false;
+	    Mesh m = chunk.mesh;
+
+	    m.draw();
+	}
+	//cube.draw();
+		
 	// TODO: RENDERING
 
 	if(platform::is_key_down(platform::Key.KEY_ESCAPE)) {
 	    glfw::setWindowShouldClose(platform::g_window, 1);
+	}
+	if(platform::is_key_down(platform::Key.KEY_W)) {
+	    eye.z += 4.317 * delta_time;
+	}
+	if(platform::is_key_down(platform::Key.KEY_A)) {
+	    eye.x -= 4.317 * delta_time;
+	}
+	if(platform::is_key_down(platform::Key.KEY_S)) {
+	    eye.z -= 4.317 * delta_time;
+	}
+	if(platform::is_key_down(platform::Key.KEY_D)) {
+	    eye.x += 4.317 * delta_time;
+	}
+	if(platform::is_key_down(platform::Key.KEY_SPACE)) {
+	    eye.y += 4.317 * delta_time;
+	}
+	if(platform::is_key_down(platform::Key.KEY_LSHIFT)) {
+	    eye.y -= 4.317 * delta_time;
 	}
 
 	platform::swap_buffers();
@@ -137,8 +173,12 @@ fn int start(WindowConfig cfg) {
 				   &cursor_input_callback);
 
     load_textures();
+
+    world = world::generate_world();
+
     int exit_code = m_loop(cfg);
-    
+
+    world::unload_chunk(&world);
     
     return exit_code;
 }
