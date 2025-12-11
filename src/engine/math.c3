@@ -21,3 +21,6 @@ alias Mat4l = Mat4 {long};
 alias Listf = List {float};
 alias Listui = List {uint};
  
+fn float radians(float angle) {
+    return angle * 0.01745329251;
+}

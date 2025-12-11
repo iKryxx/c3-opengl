@@ -19,8 +19,6 @@ fn void Mesh.regenerate_buffers(&self) {
 }
 
 fn void Mesh.make(&self, float[] verticies, uint[] indices, int floats_stride) {
-    core::log(" LENGTHSSS %d %d", verticies.len, indices.len);
-
     self.regenerate_buffers();
     gl::bindVertexArray(self.vao);
     gl::bindBuffer(GL_ARRAY_BUFFER, self.vbo);

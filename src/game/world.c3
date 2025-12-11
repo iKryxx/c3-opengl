@@ -179,7 +179,6 @@ fn void Chunk.generate_chunk_mesh(&self) {
     float[] verts_arr = chunk_vertices.to_tarray();
     uint[] idx_arr = chunk_indices.to_tarray();
     
-    core::to_file("log.txt", "%d %d\n%s\n\n%s\n\n\n%s\n\n%s", verts_arr.len, idx_arr.len, verts_arr, idx_arr, chunk_vertices, chunk_indices);
     self.mesh.make(verts_arr, idx_arr, gfx::CUBE_FLOAT_STRIDE);
 
     chunk_indices.free();

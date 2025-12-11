@@ -3,6 +3,9 @@ module engine::platform;
 import engine::core;
 import opengl::gl;
 import glfw;
+import game::settings;
+import engine::core::fs;
+import std::io;
 
 faultdef GLFW_INIT_ERROR;
 faultdef GLFW_WINDOW_CREATE_ERROR;
@@ -11,6 +14,8 @@ faultdef GL_INIT_ERROR;
 struct WindowConfig {
     int width;
     int height;
+    int fb_width;
+    int fb_height;
     ZString title;
     bool vsync;
 }
@@ -40,6 +45,8 @@ fn void? init(WindowConfig cfg) {
     } else {
 	core::g_cfg.log_level |= core::LOGLEVEL_WARNING | core::LOGLEVEL_ERROR;
     }
+
+    init_settings()!;
     
     glfw::setErrorCallback((GlfwErrorFn)&glfw_error_callback);
 
@@ -86,10 +93,9 @@ fn void? init(WindowConfig cfg) {
     gl::enable(GL_DEPTH_TEST);
     gl::depthFunc(GL_LEQUAL);
     gl::enable(GL_CULL_FACE);
-    int fbw;
-    int fbh;
-    glfw::getFramebufferSize(g_window, &fbw, &fbh);
-    gl::viewport(0, 0, fbw, fbh);
+
+    glfw::getFramebufferSize(g_window, &cfg.fb_width, &cfg.fb_height);
+    gl::viewport(0, 0, cfg.fb_width, cfg.fb_height);
 }
 
 <*
@@ -105,6 +111,21 @@ fn void? init_gl()
     char* version = gl::getString(gl::GL_VERSION);
     core::info("Renderer: %s", (ZString)renderer);
     core::info("Version: %s", (ZString)version);
+}
+
+fn void? init_settings() {
+    Ini_file? f = fs::ini_parse("settings.ini");
+    if(catch excuse = f) {
+	if(excuse == io::FILE_NOT_FOUND) {
+	    settings::game_settings.write_ini("settings.ini")!;
+	    return;
+	} else {
+	    return excuse?;
+	}
+    }
+    
+    settings::game_settings.parse_ini(&f)!;
+    f.free();
 }
 
 <*
@@ -134,6 +155,7 @@ fn bool should_close() {
 <*
  Retrieves the size of the framebuffer.
  @return "a vector of length 2, x is width, y is height"
+ @deprecated
 *>
 fn int[<2>] framebuffer_size() {
     int width;
@@ -149,6 +171,7 @@ fn int[<2>] framebuffer_size() {
 fn void shutdown() {
     if(g_window != null) {
 	glfw::destroyWindow(g_window);
+	g_window = null;
     }
     glfw::terminate();
 }

@@ -9,6 +9,7 @@ import engine::math;
 import game::world;
 import opengl::gl;
 import engine::core;
+import game::settings;
 
 World world;
 Shader c_shader;
@@ -83,15 +84,13 @@ fn void update_dt() {
 }
 
 fn int m_loop(WindowConfig cfg) {
-    //Mesh cube;
-    //cube = cube.make_cube({2, 2, 2, 2, 1, 0});
-    
     gl::enable(GL_DEPTH_TEST);
        
     Vec3f eye = {0.0f, 20.0f, -5.0f};
+    long? fov = settings::game_settings.geti("Field of view");
+    if(catch excuse = fov) { core::error("Couldn't get FOV from settings File: %s", excuse); return 1;}
+    core::log("FOV: %d", fov);
     while(!platform::should_close()) {
-	int[<2>] framebuffer_size = platform::framebuffer_size();
-
 	update_dt();
 	platform::poll_events();
 	gfx::clear();
@@ -103,7 +102,8 @@ fn int m_loop(WindowConfig cfg) {
 	// TODO: Structurise this
 	
 	float aspect = (float)cfg.width / (float)cfg.height;
-	Mat4f proj = mat4::perspective(70 * 0.01745329251, aspect, 0.1, 1000);
+
+	Mat4f proj = mat4::perspective(math::radians(fov), aspect, 0.1, 1000);
 	Mat4f model = mat4::identity();
 	Mat4f view = mat4::look_at(eye, eye + (Vec3f){0.0, -0.25, 1.0}, up);
 
