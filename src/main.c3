@@ -2,8 +2,8 @@ import game::app;
 import engine::platform;
 fn int main() {
     WindowConfig cfg = {
-	.width = 800,
-	.height = 600,
+	.width = 1080,
+	.height = 720,
 	.title = "BlockGame",
 	.vsync = false
     };

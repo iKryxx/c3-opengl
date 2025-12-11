@@ -83,7 +83,7 @@ fn void update_dt() {
     last_frame = current_frame;
 }
 
-fn int m_loop(WindowConfig cfg) {
+fn int m_loop() {
     gl::enable(GL_DEPTH_TEST);
        
     Vec3f eye = {0.0f, 20.0f, -5.0f};
@@ -101,7 +101,10 @@ fn int m_loop(WindowConfig cfg) {
 
 	// TODO: Structurise this
 	
-	float aspect = (float)cfg.width / (float)cfg.height;
+	platform::update_framebuffer_size();
+	if(platform::g_config.fb_height == 0) continue;
+
+	float aspect = (float)platform::g_config.fb_width / (float)platform::g_config.fb_height;
 
 	Mat4f proj = mat4::perspective(math::radians(fov), aspect, 0.1, 1000);
 	Mat4f model = mat4::identity();
@@ -151,6 +154,9 @@ fn int m_loop(WindowConfig cfg) {
 	if(platform::is_key_down(platform::Key.KEY_LSHIFT)) {
 	    eye.y -= 4.317 * delta_time;
 	}
+	if(platform::was_key_pressed(platform::Key.KEY_F11)) {
+	    platform::toggle_fullscreen();
+	}
 
 	platform::swap_buffers();
 	platform::input_frame_reset();
@@ -175,8 +181,8 @@ fn int start(WindowConfig cfg) {
     load_textures();
 
     world = world::generate_world();
-
-    int exit_code = m_loop(cfg);
+ 
+    int exit_code = m_loop();
 
     world::unload_chunk(&world);
     

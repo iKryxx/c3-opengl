@@ -56,58 +56,60 @@ fn char *trim(char *s)
 }
 
 fn Ini_file? ini_parse(String path) {
-    File f = file::open(path, "r")!;
+    @pool(){
+	File f = file::open(path, "r")!;
 
-    usz size = f.seek(0, Seek.END)!;
-    f.seek(0, Seek.SET)!;
+	usz size = f.seek(0, Seek.END)!;
+	f.seek(0, Seek.SET)!;
 
-    char* data = tmalloc(size + 1);
-    f.read(data[:size])!;
-    data[size] = 0;
-    f.close()!;
+	char* data = tmalloc(size + 1);
+	f.read(data[:size])!;
+	data[size] = 0;
+	f.close()!;
 
-    Ini_file ini = {};
-    Ini_section *curr = null;
+	Ini_file ini = {};
+	Ini_section *curr = null;
 
-    char* line = data;
-    while(line && *line) {
-	char* end = libc::strchr(line, '\n');
-	if(end) *end = '\0';
+	char* line = data;
+	while(line && *line) {
+	    char* end = libc::strchr(line, '\n');
+	    if(end) *end = '\0';
 
-	char* s = trim(line);
+	    char* s = trim(line);
 	
-	if(*s == ';' || *s == '#' || *s == '\0') {}
-	else if(*s == '[') {
-	    char *r = libc::strchr(s, ']');
+	    if(*s == ';' || *s == '#' || *s == '\0') {}
+	    else if(*s == '[') {
+		char *r = libc::strchr(s, ']');
 
-	    if(r) {
-		*r = '\0';
+		if(r) {
+		    *r = '\0';
 		
-		ini.sections = realloc(ini.sections, Ini_section.sizeof * (ini.sections_count + 1));
-		curr = &ini.sections[ini.sections_count++];
-		*curr = {
-		    .name = libc::strdup((ZString)(s + 1)),
-		    .pairs = null,
-		};
+		    ini.sections = realloc(ini.sections, Ini_section.sizeof * (ini.sections_count + 1));
+		    curr = &ini.sections[ini.sections_count++];
+		    *curr = {
+			.name = libc::strdup((ZString)(s + 1)),
+			.pairs = null,
+		    };
+		}
 	    }
-	}
-	else {
-	    char *eq = libc::strchr(s, '=');
-	    if(eq && curr) {
-		*eq = '\0';
-		char *k = trim(s);
-		char *v = trim(eq + 1);
+	    else {
+		char *eq = libc::strchr(s, '=');
+		if(eq && curr) {
+		    *eq = '\0';
+		    char *k = trim(s);
+		    char *v = trim(eq + 1);
 
-		curr.pairs = realloc(curr.pairs, Ini_kv.sizeof * (curr.pairs_count + 1));
-		curr.pairs[curr.pairs_count++] = {
-		    .key = libc::strdup((ZString)k),
-		    .value = libc::strdup((ZString)v)
-		};
+		    curr.pairs = realloc(curr.pairs, Ini_kv.sizeof * (curr.pairs_count + 1));
+		    curr.pairs[curr.pairs_count++] = {
+			.key = libc::strdup((ZString)k),
+			.value = libc::strdup((ZString)v)
+		    };
+		}
 	    }
+	    line = end ? end + 1 : null;
 	}
-	line = end ? end + 1 : null;
-    }
-    return ini;
+	return ini;
+    };
 }
 
 fn char* ini_get(Ini_file *ini, char* section, char* key) {

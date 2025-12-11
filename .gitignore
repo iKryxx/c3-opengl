@@ -3,6 +3,7 @@ build/
 *.o
 *.obj
 *.exe
+*.ini
 
 # Editor/backup files
 *~

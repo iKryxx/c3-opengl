@@ -18,6 +18,11 @@ struct WindowConfig {
     int fb_height;
     ZString title;
     bool vsync;
+    bool fullscreen;
+    int last_win_x;
+    int last_win_y;
+    int last_win_w;
+    int last_win_h;
 }
 
 GlfwWindow* g_window = null;
@@ -94,8 +99,8 @@ fn void? init(WindowConfig cfg) {
     gl::depthFunc(GL_LEQUAL);
     gl::enable(GL_CULL_FACE);
 
-    glfw::getFramebufferSize(g_window, &cfg.fb_width, &cfg.fb_height);
-    gl::viewport(0, 0, cfg.fb_width, cfg.fb_height);
+    glfw::getFramebufferSize(g_window, &g_config.fb_width, &g_config.fb_height);
+    gl::viewport(0, 0, g_config.fb_width, g_config.fb_height);
 }
 
 <*
@@ -142,6 +147,21 @@ fn void swap_buffers() {
     glfw::swapBuffers(g_window);
 }
 
+fn void update_framebuffer_size() {
+    if(g_window == null) return;
+
+    int fbw;
+    int fbh;
+    glfw::getFramebufferSize(g_window, &fbw, &fbh);
+    if(fbw == g_config.fb_width && fbh == g_config.fb_height) return;
+
+    g_config.fb_width = fbw;
+    g_config.fb_height = fbh;
+    glfw::getWindowSize(g_window, &g_config.width, &g_config.height);
+
+    gl::viewport(0, 0, g_config.fb_width, g_config.fb_height);
+}
+
 <*
  Checks, if the application should terminate or not
 
@@ -174,4 +194,49 @@ fn void shutdown() {
 	g_window = null;
     }
     glfw::terminate();
+}
+
+fn void toggle_fullscreen() {
+    if(!g_config.fullscreen) {
+	glfw::getWindowPos(g_window,
+			   &g_config.last_win_x,
+			   &g_config.last_win_y);
+	glfw::getWindowSize(g_window,
+			    &g_config.last_win_w,
+			    &g_config.last_win_h);
+
+	GlfwMonitor *monitor = glfw::getPrimaryMonitor(); 
+	GlfwVidMode *mode = glfw::getVideoMode(monitor);
+	
+	glfw::setWindowMonitor(
+	    g_window,
+	    monitor,
+	    0, 0,
+	    mode.width,
+	    mode.height,
+	    mode.refreshRate
+	);
+
+	g_config.width = mode.width;
+	g_config.height = mode.height;
+
+	g_config.fullscreen = true;
+    } else {
+	glfw::setWindowMonitor(
+	    g_window,
+	    null,
+	    g_config.last_win_x,
+	    g_config.last_win_y,
+	    g_config.last_win_w,
+	    g_config.last_win_h,
+	    0
+	);
+	g_config.width = g_config.last_win_w;
+	g_config.height = g_config.last_win_h;
+
+	g_config.fullscreen = false;
+    }
+
+    update_framebuffer_size();
+    
 }
