@@ -10,6 +10,8 @@ import game::world;
 import opengl::gl;
 import engine::core;
 import game::settings;
+import game::camera;
+
 
 World world;
 Shader c_shader;
@@ -17,6 +19,7 @@ Texture[100] c_textures;
 TextureArray arr;
 GLfloat delta_time = 0.0f;
 GLfloat last_frame = 0.0f;
+Camera cam;
 
 <*
  @require key >= 0, key < platform::KEY_COUNT
@@ -85,14 +88,18 @@ fn void update_dt() {
 
 fn int m_loop() {
     gl::enable(GL_DEPTH_TEST);
-       
-    Vec3f eye = {0.0f, 20.0f, -5.0f};
+    cam.position = {8.0f, 20.0f, -5.0f};
+    cam.speed = 4.175;
+    cam.sensitivity = 2;
+    
     long? fov = settings::game_settings.geti("Field of view");
     if(catch excuse = fov) { core::error("Couldn't get FOV from settings File: %s", excuse); return 1;}
     core::log("FOV: %d", fov);
     while(!platform::should_close()) {
 	update_dt();
+	cam.update();
 	platform::poll_events();
+	
 	gfx::clear();
 
 	
@@ -108,7 +115,9 @@ fn int m_loop() {
 
 	Mat4f proj = mat4::perspective(math::radians(fov), aspect, 0.1, 1000);
 	Mat4f model = mat4::identity();
-	Mat4f view = mat4::look_at(eye, eye + (Vec3f){0.0, -0.25, 1.0}, up);
+	Mat4f view = mat4::look_at(cam.position,
+				   cam.get_look_at_target(),
+				   up);
 
 	c_shader.use();
 	arr.bind(0);
@@ -132,34 +141,43 @@ fn int m_loop() {
 	//cube.draw();
 		
 	// TODO: RENDERING
-
+	Vec3f movement = {};
 	if(platform::is_key_down(platform::Key.KEY_ESCAPE)) {
 	    glfw::setWindowShouldClose(platform::g_window, 1);
 	}
 	if(platform::is_key_down(platform::Key.KEY_W)) {
-	    eye.z += 4.317 * delta_time;
+	    movement += cam.forward;
 	}
 	if(platform::is_key_down(platform::Key.KEY_A)) {
-	    eye.x -= 4.317 * delta_time;
+	    movement += cam.right;
 	}
 	if(platform::is_key_down(platform::Key.KEY_S)) {
-	    eye.z -= 4.317 * delta_time;
+	    movement -= cam.forward;
 	}
 	if(platform::is_key_down(platform::Key.KEY_D)) {
-	    eye.x += 4.317 * delta_time;
+	    movement -= cam.right;
 	}
 	if(platform::is_key_down(platform::Key.KEY_SPACE)) {
-	    eye.y += 4.317 * delta_time;
+	    movement.y += 1;
 	}
 	if(platform::is_key_down(platform::Key.KEY_LSHIFT)) {
-	    eye.y -= 4.317 * delta_time;
+	    movement.y -= 1;
 	}
 	if(platform::was_key_pressed(platform::Key.KEY_F11)) {
 	    platform::toggle_fullscreen();
 	}
+	
+	float[<2>] m_d = platform::mouse_delta();
+	cam.direction_tick(m_d);
+
+	cam.position += movement *
+	(Vec3f){cam.speed, cam.speed, cam.speed} *
+	(Vec3f){delta_time, delta_time, delta_time};
 
 	platform::swap_buffers();
+	
 	platform::input_frame_reset();
+	
     }
     return 0;
 }

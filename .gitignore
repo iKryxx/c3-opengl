@@ -3,7 +3,6 @@ build/
 *.o
 *.obj
 *.exe
-*.ini
 
 # Editor/backup files
 *~
@@ -15,6 +14,7 @@ build/
 # Dotfiles
 .projectile
 AGENTS.md
+settings.ini
 
 # Runtime assets
 assets/

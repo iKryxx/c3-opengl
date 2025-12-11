@@ -89,7 +89,7 @@ fn void? init(WindowConfig cfg) {
 
     glfw::makeContextCurrent(g_window);
     glfw::swapInterval(cfg.vsync ? 1 : 0);
-
+    glfw::setInputMode(g_window, glfw::CURSOR, glfw::CURSOR_DISABLED);
     if(catch excuse = init_gl()) {
 	return GL_INIT_ERROR?;
     }
