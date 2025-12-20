@@ -67,10 +67,10 @@ fn Texture texture_load_tga(String path) {
     int height = hdr.height;
     int bpp = hdr.pixel_depth;
     
-    if(!(bpp == 24 || bpp == 32)) {
+    /*if(!(bpp == 24 || bpp == 32)) {
 	core::warning("Failed to load texture file %s: unsupported bpp %d", path, bpp);
 	return {  };
-    }
+    }*/
 
     if (hdr.data_type != 2) // 2 = uncompressed true-color
     {

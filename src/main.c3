@@ -5,7 +5,6 @@ fn int main() {
 	.width = 1080,
 	.height = 720,
 	.title = "BlockGame",
-	.vsync = false
     };
     int ret = app::start(cfg);
 

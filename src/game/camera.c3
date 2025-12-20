@@ -28,7 +28,7 @@ fn void Camera.update(&self) {
 }
 
 fn void Camera.direction_tick(&self, float[<2>] deltas) {
-    self.yaw += deltas.x * self.sensitivity / 1000;
+    self.yaw -= deltas.x * self.sensitivity / 1000;
     self.pitch -= deltas.y * self.sensitivity / 1000;
 
     

@@ -36,12 +36,13 @@ in float vTexId;
 out vec4 FragColor;
 
 uniform sampler2DArray u_Textures;
+uniform vec3 colormap;
 
 void main() {
     int layer = int(vTexId);
     vec3 texColor = texture(u_Textures, vec3(vUV, layer)).rgb;
 
-    vec3 light = normalize(vec3(0.8,0.9,1.0));
+    vec3 light = normalize(vec3(-1,1,-1));
     float d = max(dot(vNormal, light), 0.2);
 
     FragColor = vec4(texColor * d, 1.0);
