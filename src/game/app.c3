@@ -87,6 +87,7 @@ fn void update_settings() {
 		// TODO: FOV
 		// TODO: Sensitivity
 	}
+	settings::should_update = false;
 }
 
 fn void update_dt() {
