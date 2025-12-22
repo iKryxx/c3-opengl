@@ -165,7 +165,8 @@ fn void draw_world() {
 	for(int i = 0; i < world.chunks.len; i++) {
 		Chunk* chunk = world.chunks[i];
 		if(chunk == null) continue;
-		if(chunk.dirty) chunk.generate_chunk_mesh();
+		if(!world::chunk_in_render_range(chunk, cam.position)) continue;
+		if(chunk.dirty) chunk.generate_chunk_mesh(&world);
 		chunk.dirty = false;
 		chunk.mesh.draw();
 	}

@@ -14,6 +14,7 @@ const uint CHUNK_VOLUME = CHUNK_WIDTH
 
 const uint REGION_SIZE = 6;
 const int REGION_RADIUS = (int)(REGION_SIZE / 2);
+const int RENDER_RADIUS = REGION_RADIUS;
 
 enum BlockType: const int {
 	AIR = -1,
@@ -116,7 +117,82 @@ fn Chunk* generate_chunk(Vec2i pos) {
 <*
  Builds or rebuilds the chunk mesh from current block data.
 *>
-fn void Chunk.generate_chunk_mesh(&self) {
+fn Chunk* find_chunk(World *world, Vec2i pos) {
+	for(usz i = 0; i < world.chunks.len; i++) {
+		Chunk* chunk = world.chunks[i];
+		if(chunk == null) continue;
+		if(chunk.pos == pos) return chunk;
+	}
+	return null;
+}
+
+<*
+ Returns the block type for a neighbor, including across chunk boundaries.
+*>
+fn BlockType neighbor_block(World *world, Chunk* chunk, Vec3i local_pos, int dir) {
+	Vec3i n_local = local_pos;
+	Vec2i n_chunk_pos = chunk.pos;
+
+	switch(dir) {
+		case 0: { // +Z
+			if(local_pos.z < (int)CHUNK_WIDTH - 1) {
+				n_local.z += 1;
+				return chunk.blocks[coords_to_arr(n_local)].type;
+			}
+			n_chunk_pos.y += 1;
+			n_local.z = 0;
+			break;
+		}
+		case 1: { // -Z
+			if(local_pos.z > 0) {
+				n_local.z -= 1;
+				return chunk.blocks[coords_to_arr(n_local)].type;
+			}
+			n_chunk_pos.y -= 1;
+			n_local.z = (int)CHUNK_WIDTH - 1;
+			break;
+		}
+		case 2: { // -X
+			if(local_pos.x > 0) {
+				n_local.x -= 1;
+				return chunk.blocks[coords_to_arr(n_local)].type;
+			}
+			n_chunk_pos.x -= 1;
+			n_local.x = (int)CHUNK_WIDTH - 1;
+			break;
+		}
+		case 3: { // +X
+			if(local_pos.x < (int)CHUNK_WIDTH - 1) {
+				n_local.x += 1;
+				return chunk.blocks[coords_to_arr(n_local)].type;
+			}
+			n_chunk_pos.x += 1;
+			n_local.x = 0;
+			break;
+		}
+		case 4: { // +Y
+			if(local_pos.y < (int)CHUNK_HEIGHT - 1) {
+				n_local.y += 1;
+				return chunk.blocks[coords_to_arr(n_local)].type;
+			}
+			return AIR;
+		}
+		case 5: { // -Y
+			if(local_pos.y > 0) {
+				n_local.y -= 1;
+				return chunk.blocks[coords_to_arr(n_local)].type;
+			}
+			return AIR;
+		}
+		default: core::error("Unreachable Code reached inside neighbor_block");
+	}
+
+	Chunk* neighbor_chunk = find_chunk(world, n_chunk_pos);
+	if(neighbor_chunk == null) return AIR;
+	return neighbor_chunk.blocks[coords_to_arr(n_local)].type;
+}
+
+fn void Chunk.generate_chunk_mesh(&self, World *world) {
 	Listf chunk_vertices;
 	Listui chunk_indices;
 
@@ -129,48 +205,10 @@ fn void Chunk.generate_chunk_mesh(&self) {
 		if(block.type == AIR) continue;
 
 		for (int d = 0; d < 6; d++) {
-			Block neighbor = {.type = AIR};
-			int n_idx = -1;
-			switch(d) {
-				case 0: { // +Z
-					if(pos.z == CHUNK_WIDTH - 1) break;
-					n_idx = coords_to_arr(pos + (Vec3i){0, 0, 1});
-					break;
-				}
-				case 1: { // -Z
-					if(pos.z == 0) break;
-					n_idx = coords_to_arr(pos + (Vec3i){0, 0, -1});
-					break;
-				}
-				case 2: { // -X
-					if(pos.x == 0) break;
-					n_idx = coords_to_arr(pos + (Vec3i){-1, 0, 0});
-					break;
-				}
-				case 3: { // +X
-					if(pos.x == CHUNK_WIDTH - 1) break;
-					n_idx = coords_to_arr(pos + (Vec3i){1, 0, 0});
-					break;
-				}
-				case 4: { // +Y
-					if(pos.y == CHUNK_HEIGHT - 1) break;
-					n_idx = coords_to_arr(pos + (Vec3i){0, 1, 0});
-					break;
-				}
-				case 5: { // -Y
-					if(pos.y == 0) break;
-					n_idx = coords_to_arr(pos + (Vec3i){0, -1, 0});
-					break;
-				}
-				default: core::error("Unreachable Code reached inside generate_chunk_mesh(self)");
-			}
-
-			if(n_idx >= 0) {
-				neighbor = self.blocks[n_idx];
-			}
+			BlockType neighbor = neighbor_block(world, self, pos, d);
 
 			// Only draw exposed faces.
-			if(neighbor.type != AIR) {
+			if(neighbor != AIR) {
 				continue;
 			}
 
@@ -247,6 +285,28 @@ fn Vec2i world_pos_to_chunk(Vec3f pos) {
 		chunk_coord_from_world(pos.x),
 		chunk_coord_from_world(pos.z)
 	};
+}
+
+<*
+ Computes the chunk center in world space (x/z plane).
+*>
+fn Vec2f chunk_world_center(Vec2i chunk_pos) {
+	float half = (float)CHUNK_WIDTH * 0.5f;
+	return {
+		(float)(chunk_pos.x * (int)CHUNK_WIDTH) + half,
+		(float)(chunk_pos.y * (int)CHUNK_WIDTH) + half
+	};
+}
+
+<*
+ Returns true if a chunk is inside the render radius around the camera.
+*>
+fn bool chunk_in_render_range(Chunk* chunk, Vec3f camera_pos) {
+	Vec2f center = chunk_world_center(chunk.pos);
+	float dx = center.x - camera_pos.x;
+	float dz = center.y - camera_pos.z;
+	float radius = (float)((RENDER_RADIUS + 1) * (int)CHUNK_WIDTH);
+	return (dx * dx + dz * dz) <= (radius * radius);
 }
 
 fn bool chunk_in_region(Vec2i pos, Vec2i origin) {
