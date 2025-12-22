@@ -14,11 +14,11 @@ const uint CHUNK_VOLUME = CHUNK_WIDTH
 	* CHUNK_HEIGHT;
 
 
-const uint REGION_SIZE = 12;
+const uint REGION_SIZE = 22;
 const int REGION_RADIUS = (int)(REGION_SIZE / 2);
 const int RENDER_RADIUS = REGION_RADIUS;
-const int MESH_JOB_CAP = 32;
-const int MESH_RESULT_CAP = 32;
+const int MESH_JOB_CAP = 64;
+const int MESH_RESULT_CAP = 64;
 
 enum BlockType: const int {
 	AIR = -1,
@@ -120,6 +120,11 @@ struct MeshQueue {
 }
 
 MeshQueue g_mesh_queue;
+
+struct MeshCandidate {
+	Chunk* chunk;
+	float dist2;
+}
 
 <*
  Converts a linear block index into chunk-local coordinates.
@@ -470,22 +475,6 @@ fn bool enqueue_chunk_mesh(World *world, Chunk* chunk) {
 }
 
 <*
- Enqueues a limited number of dirty, visible chunks for mesh generation.
-*>
-fn int queue_visible_chunk_meshes(World *world, Vec3f camera_pos, int budget) {
-	if(budget <= 0) return 0;
-	int queued = 0;
-	for(int i = 0; i < world.chunks.len; i++) {
-		if(queued >= budget) break;
-		Chunk* chunk = world.chunks[i];
-		if(chunk == null) continue;
-		if(!chunk_in_render_range(chunk, camera_pos)) continue;
-		if(enqueue_chunk_mesh(world, chunk)) queued += 1;
-	}
-	return queued;
-}
-
-<*
  Applies a limited number of completed mesh builds on the main thread.
 *>
 fn int apply_completed_meshes(int budget) {
@@ -513,6 +502,61 @@ fn int apply_completed_meshes(int budget) {
 		applied += 1;
 	}
 	return applied;
+}
+
+fn float chunk_distance2(Chunk* chunk, Vec3f camera_pos) {
+	Vec2f center = chunk_world_center(chunk.pos);
+	float dx = center.x - camera_pos.x;
+	float dz = center.y - camera_pos.z;
+	return dx * dx + dz * dz;
+}
+
+fn void try_insert_candidate(MeshCandidate[] candidates, int *count, int max_count, MeshCandidate item) {
+	if(*count < max_count) {
+		candidates[*count] = item;
+		*count += 1;
+		return;
+	}
+
+	int worst = 0;
+	float worst_dist = candidates[0].dist2;
+	for(int i = 1; i < *count; i++) {
+		if(candidates[i].dist2 > worst_dist) {
+			worst_dist = candidates[i].dist2;
+			worst = i;
+		}
+	}
+
+	if(item.dist2 < worst_dist) {
+		candidates[worst] = item;
+	}
+}
+
+<*
+ Enqueues a limited number of dirty, visible chunks for mesh generation.
+ Prioritizes chunks closest to the camera.
+*>
+fn int queue_visible_chunk_meshes(World *world, Vec3f camera_pos, int budget) {
+	if(budget <= 0) return 0;
+	MeshCandidate[] candidates = mem::talloc_array(MeshCandidate, (usz)budget);
+	int candidate_count = 0;
+
+	for(int i = 0; i < world.chunks.len; i++) {
+		Chunk* chunk = world.chunks[i];
+		if(chunk == null) continue;
+		if(!chunk_in_render_range(chunk, camera_pos)) continue;
+		if(!chunk.dirty) continue;
+		if(chunk.mesh_queued || chunk.mesh_building) continue;
+
+		MeshCandidate candidate = {chunk, chunk_distance2(chunk, camera_pos)};
+		try_insert_candidate(candidates, &candidate_count, budget, candidate);
+	}
+
+	int queued = 0;
+	for(int i = 0; i < candidate_count; i++) {
+		if(enqueue_chunk_mesh(world, candidates[i].chunk)) queued += 1;
+	}
+	return queued;
 }
 
 fn World generate_world() {
