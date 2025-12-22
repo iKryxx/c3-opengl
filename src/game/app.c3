@@ -103,12 +103,14 @@ fn int m_loop() {
 	cam.position = {8.0f, world::CHUNK_HEIGHT, -5.0f};
 	cam.speed = 4.175;
 	cam.sensitivity = 2;
+	world::update_world(&world, cam.position);
 
 	long fov = settings::game_settings[Setting.FOV].ival;
 	while(!platform::should_close()) {
 		update_dt();
 		cam.update();
 		platform::poll_events();
+		world::update_world(&world, cam.position);
 
 		gfx::clear();
 

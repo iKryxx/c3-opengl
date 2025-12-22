@@ -77,3 +77,19 @@ fn void Mesh.draw(self) {
     gl::bindVertexArray(self.vao);
     gl::drawElements(GL_TRIANGLES, self.count, GL_UNSIGNED_INT, (void*)0);
 }
+
+fn void Mesh.destroy(&self) {
+    if(self.vao != 0) {
+        gl::deleteVertexArrays(1, &self.vao);
+        self.vao = 0;
+    }
+    if(self.vbo != 0) {
+        gl::deleteBuffers(1, &self.vbo);
+        self.vbo = 0;
+    }
+    if(self.ebo != 0) {
+        gl::deleteBuffers(1, &self.ebo);
+        self.ebo = 0;
+    }
+    self.count = 0;
+}
