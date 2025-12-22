@@ -64,6 +64,9 @@ const BlockTexture[] TEXTURE_ATLAS @private = {
 
 macro int coords_to_arr(p) => ((p.z * CHUNK_WIDTH * CHUNK_HEIGHT) + (p.y * CHUNK_WIDTH) + p.x);
 
+<*
+ Converts a linear block index into chunk-local coordinates.
+*>
 fn Vec3i arr_to_coords(int i) {
 	int z = i / (CHUNK_WIDTH * CHUNK_HEIGHT);
 	i -= (z * CHUNK_WIDTH * CHUNK_HEIGHT);
@@ -73,22 +76,36 @@ fn Vec3i arr_to_coords(int i) {
 
 }
 
+<*
+ Returns the block type for a local position.
+ This is the hook for procedural generation later.
+*>
+fn BlockType block_type_at(Vec3i local_pos, Vec2i chunk_pos) {
+	int surface = CHUNK_HEIGHT - 20 + (chunk_pos.x + chunk_pos.y) * 0;
+	if(local_pos.y < surface) return DIRT;
+	if(local_pos.y == surface) return GRASS;
+	return AIR;
+}
+
+<*
+ Fills the chunk with blocks for the given world chunk position.
+*>
 fn void generate_chunk_blocks(Chunk* chunk, Vec2i pos) {
 	chunk.pos = pos;
 	for(int x = 0; x < CHUNK_WIDTH; x++) {
 		for(int y = 0; y < CHUNK_HEIGHT; y++) {
 			for(int z = 0; z < CHUNK_WIDTH; z++) {
-				BlockType 			    b = AIR;
-				if(y < CHUNK_HEIGHT - 20) 	  { b = DIRT; }
-				else if (y <  CHUNK_HEIGHT - 19)  { b = GRASS; }
-
-				int idx = coords_to_arr((Vec3i){x, y, z});
-				chunk.blocks[idx] = { b };
+				Vec3i local_pos = {x, y, z};
+				int idx = coords_to_arr(local_pos);
+				chunk.blocks[idx] = { block_type_at(local_pos, pos) };
 			}
 		}
 	}
 }
 
+<*
+ Allocates and initializes a chunk at the given position.
+*>
 fn Chunk* generate_chunk(Vec2i pos) {
 	// Zero-init mesh so GL handles start at 0; uninitialised handles cause UB in Mesh.make.
 	Chunk* chunk = mem::new(Chunk, { .mesh = {}, .dirty = true });
@@ -96,6 +113,9 @@ fn Chunk* generate_chunk(Vec2i pos) {
 	return chunk;
 }
 
+<*
+ Builds or rebuilds the chunk mesh from current block data.
+*>
 fn void Chunk.generate_chunk_mesh(&self) {
 	Listf chunk_vertices;
 	Listui chunk_indices;
@@ -194,6 +214,9 @@ fn World generate_world() {
 	return world;
 }
 
+<*
+ Frees all chunk CPU and GPU resources.
+*>
 fn void unload_chunk(World *world) {
 	for(usz i = 0; i < world.chunks.len; i++) {
 		Chunk* chunk = world.chunks[i];
@@ -204,6 +227,9 @@ fn void unload_chunk(World *world) {
 	}
 }
 
+<*
+ Converts a world-space coordinate into a chunk coordinate.
+*>
 fn int chunk_coord_from_world(float pos) {
 	float scaled = pos / (float)CHUNK_WIDTH;
 	int coord = (int)scaled;
@@ -213,11 +239,45 @@ fn int chunk_coord_from_world(float pos) {
 	return coord;
 }
 
+<*
+ Maps a 3D world position to a 2D chunk coordinate (x/z plane).
+*>
 fn Vec2i world_pos_to_chunk(Vec3f pos) {
 	return {
 		chunk_coord_from_world(pos.x),
 		chunk_coord_from_world(pos.z)
 	};
+}
+
+fn bool chunk_in_region(Vec2i pos, Vec2i origin) {
+	int rel_x = pos.x - origin.x;
+	int rel_y = pos.y - origin.y;
+	return rel_x >= 0 && rel_x < (int)REGION_SIZE &&
+		rel_y >= 0 && rel_y < (int)REGION_SIZE;
+}
+
+fn usz region_index(Vec2i pos, Vec2i origin) {
+	int rel_x = pos.x - origin.x;
+	int rel_y = pos.y - origin.y;
+	return (usz)(rel_x * (int)REGION_SIZE + rel_y);
+}
+
+fn Chunk* take_recycled_chunk(Chunk*[REGION_SIZE * REGION_SIZE] recycled, int *count, Vec2i pos) {
+	if(*count <= 0) return null;
+	*count -= 1;
+	Chunk* chunk = recycled[*count];
+	generate_chunk_blocks(chunk, pos);
+	chunk.dirty = true;
+	return chunk;
+}
+
+fn void init_world_chunk_window(World *world, Vec2i origin) {
+	for(int x = 0; x < (int)REGION_SIZE; x++) {
+		for(int y = 0; y < (int)REGION_SIZE; y++) {
+			Vec2i pos = {origin.x + x, origin.y + y};
+			world.chunks[(usz)(x * (int)REGION_SIZE + y)] = generate_chunk(pos);
+		}
+	}
 }
 
 <*
@@ -226,9 +286,7 @@ fn Vec2i world_pos_to_chunk(Vec3f pos) {
 *>
 fn void update_world(World *world, Vec3f player_pos) {
 	Vec2i player_chunk = world_pos_to_chunk(player_pos);
-	if(world.initialized && player_chunk == world.last_player_chunk) {
-		return;
-	}
+	if(world.initialized && player_chunk == world.last_player_chunk) return;
 
 	world.last_player_chunk = player_chunk;
 
@@ -237,6 +295,13 @@ fn void update_world(World *world, Vec3f player_pos) {
 		player_chunk.y - REGION_RADIUS
 	};
 
+	if(!world.initialized) {
+		init_world_chunk_window(world, new_origin);
+		world.origin = new_origin;
+		world.initialized = true;
+		return;
+	}
+
 	Chunk*[REGION_SIZE * REGION_SIZE] new_chunks = {};
 	Chunk*[REGION_SIZE * REGION_SIZE] recycled = {};
 	int recycled_count = 0;
@@ -244,17 +309,12 @@ fn void update_world(World *world, Vec3f player_pos) {
 	for(usz i = 0; i < world.chunks.len; i++) {
 		Chunk* chunk = world.chunks[i];
 		if(chunk == null) continue;
-
-		int rel_x = chunk.pos.x - new_origin.x;
-		int rel_y = chunk.pos.y - new_origin.y;
-		if(rel_x >= 0 && rel_x < (int)REGION_SIZE &&
-		   rel_y >= 0 && rel_y < (int)REGION_SIZE) {
-			usz idx = (usz)(rel_x * (int)REGION_SIZE + rel_y);
-			new_chunks[idx] = chunk;
-		} else {
-			recycled[recycled_count] = chunk;
-			recycled_count++;
+		if(chunk_in_region(chunk.pos, new_origin)) {
+			new_chunks[region_index(chunk.pos, new_origin)] = chunk;
+			continue;
 		}
+		recycled[recycled_count] = chunk;
+		recycled_count++;
 	}
 
 	for(int x = 0; x < (int)REGION_SIZE; x++) {
@@ -263,15 +323,8 @@ fn void update_world(World *world, Vec3f player_pos) {
 			if(new_chunks[idx] != null) continue;
 
 			Vec2i target = {new_origin.x + x, new_origin.y + y};
-			Chunk* chunk = null;
-			if(recycled_count > 0) {
-				recycled_count--;
-				chunk = recycled[recycled_count];
-				generate_chunk_blocks(chunk, target);
-				chunk.dirty = true;
-			} else {
-				chunk = generate_chunk(target);
-			}
+			Chunk* chunk = take_recycled_chunk(recycled, &recycled_count, target);
+			if(chunk == null) chunk = generate_chunk(target);
 
 			new_chunks[idx] = chunk;
 		}
