@@ -1,8 +1,10 @@
 module game::world;
 import engine::math;
+import engine::math::noise;
 import engine::gfx;
 import engine::core;
 import std::io;
+import std::thread;
 
 
 const uint CHUNK_WIDTH = 16;
@@ -12,14 +14,17 @@ const uint CHUNK_VOLUME = CHUNK_WIDTH
 	* CHUNK_HEIGHT;
 
 
-const uint REGION_SIZE = 6;
+const uint REGION_SIZE = 12;
 const int REGION_RADIUS = (int)(REGION_SIZE / 2);
 const int RENDER_RADIUS = REGION_RADIUS;
+const int MESH_JOB_CAP = 32;
+const int MESH_RESULT_CAP = 32;
 
 enum BlockType: const int {
 	AIR = -1,
 	GRASS,
-	DIRT
+	DIRT,
+	STONE
 }
 
 struct Block {
@@ -30,6 +35,9 @@ struct Chunk {
 	Block[CHUNK_VOLUME] blocks;
 	Mesh mesh;
 	bool dirty;
+	bool mesh_queued;
+	bool mesh_building;
+	uint generation;
 	Vec2i pos;
 }
 
@@ -60,10 +68,58 @@ const BlockTexture[] TEXTURE_ATLAS @private = {
 	},
 	{ // DIRT BLOCK
 		0, 0, 0, 0, 0, 0
+	},
+	{ // STONE BLOCK
+		3, 3, 3, 3, 3, 3
 	}
+
 };
 
 macro int coords_to_arr(p) => ((p.z * CHUNK_WIDTH * CHUNK_HEIGHT) + (p.y * CHUNK_WIDTH) + p.x);
+macro int boundary_index(y, z) => ((z * CHUNK_HEIGHT) + y);
+
+struct NeighborChunks {
+	Chunk* pos_x;
+	Chunk* neg_x;
+	Chunk* pos_z;
+	Chunk* neg_z;
+}
+
+struct MeshJob {
+	Chunk* chunk;
+	Vec2i chunk_pos;
+	uint generation;
+	Block[CHUNK_VOLUME] blocks;
+	BlockType[CHUNK_HEIGHT * CHUNK_WIDTH] pos_x;
+	BlockType[CHUNK_HEIGHT * CHUNK_WIDTH] neg_x;
+	BlockType[CHUNK_HEIGHT * CHUNK_WIDTH] pos_z;
+	BlockType[CHUNK_HEIGHT * CHUNK_WIDTH] neg_z;
+	bool has_pos_x;
+	bool has_neg_x;
+	bool has_pos_z;
+	bool has_neg_z;
+}
+
+struct MeshResult {
+	Chunk* chunk;
+	uint generation;
+	float[] vertices;
+	uint[] indices;
+}
+
+struct MeshQueue {
+	thread::Thread worker;
+	thread::Mutex mutex;
+	thread::ConditionVariable cond;
+	bool running;
+	bool stop_requested;
+	MeshJob*[MESH_JOB_CAP] pending;
+	int pending_count;
+	MeshResult[MESH_RESULT_CAP] completed;
+	int completed_count;
+}
+
+MeshQueue g_mesh_queue;
 
 <*
  Converts a linear block index into chunk-local coordinates.
@@ -82,8 +138,14 @@ fn Vec3i arr_to_coords(int i) {
  This is the hook for procedural generation later.
 *>
 fn BlockType block_type_at(Vec3i local_pos, Vec2i chunk_pos) {
-	int surface = CHUNK_HEIGHT - 20 + (chunk_pos.x + chunk_pos.y) * 0;
-	if(local_pos.y < surface) return DIRT;
+	//int surface = CHUNK_HEIGHT - 20 /*+ local_pos.x*/ + (chunk_pos.x + chunk_pos.y) * 0;
+	int x = local_pos.x + chunk_pos.x * CHUNK_WIDTH;
+	int y = local_pos.z + chunk_pos.y * CHUNK_WIDTH;
+
+	float zoom = 0.01f;
+	int surface = (int)(200 + noise::simplex2((float)x * zoom, (float)y * zoom) * 20);
+	if(local_pos.y <= surface - 2) return STONE;
+	if(local_pos.y > surface - 2 && local_pos.y < surface) return DIRT;
 	if(local_pos.y == surface) return GRASS;
 	return AIR;
 }
@@ -93,6 +155,11 @@ fn BlockType block_type_at(Vec3i local_pos, Vec2i chunk_pos) {
 *>
 fn void generate_chunk_blocks(Chunk* chunk, Vec2i pos) {
 	chunk.pos = pos;
+	chunk.generation += 1;
+	chunk.mesh_queued = false;
+	chunk.mesh_building = false;
+	chunk.dirty = true;
+	chunk.mesh.count = 0;
 	for(int x = 0; x < CHUNK_WIDTH; x++) {
 		for(int y = 0; y < CHUNK_HEIGHT; y++) {
 			for(int z = 0; z < CHUNK_WIDTH; z++) {
@@ -127,90 +194,128 @@ fn Chunk* find_chunk(World *world, Vec2i pos) {
 }
 
 <*
- Returns the block type for a neighbor, including across chunk boundaries.
+ Captures neighbor chunk pointers for boundary sampling.
 *>
-fn BlockType neighbor_block(World *world, Chunk* chunk, Vec3i local_pos, int dir) {
-	Vec3i n_local = local_pos;
-	Vec2i n_chunk_pos = chunk.pos;
+fn NeighborChunks gather_neighbors(World *world, Vec2i pos) {
+	return {
+		.pos_x = find_chunk(world, {pos.x + 1, pos.y}),
+		.neg_x = find_chunk(world, {pos.x - 1, pos.y}),
+		.pos_z = find_chunk(world, {pos.x, pos.y + 1}),
+		.neg_z = find_chunk(world, {pos.x, pos.y - 1})
+	};
+}
 
+fn void snapshot_chunk_job(MeshJob* job, World *world, Chunk* chunk) {
+	*job = {};
+	job.chunk = chunk;
+	job.chunk_pos = chunk.pos;
+	job.generation = chunk.generation;
+	job.blocks = chunk.blocks;
+
+	NeighborChunks neighbors = gather_neighbors(world, chunk.pos);
+	if(neighbors.pos_x != null) {
+		job.has_pos_x = true;
+		for(int y = 0; y < (int)CHUNK_HEIGHT; y++) {
+			for(int z = 0; z < (int)CHUNK_WIDTH; z++) {
+				job.pos_x[boundary_index(y, z)] =
+					neighbors.pos_x.blocks[coords_to_arr((Vec3i){0, y, z})].type;
+			}
+		}
+	}
+	if(neighbors.neg_x != null) {
+		job.has_neg_x = true;
+		for(int y = 0; y < (int)CHUNK_HEIGHT; y++) {
+			for(int z = 0; z < (int)CHUNK_WIDTH; z++) {
+				job.neg_x[boundary_index(y, z)] =
+					neighbors.neg_x.blocks[coords_to_arr((Vec3i){(int)CHUNK_WIDTH - 1, y, z})].type;
+			}
+		}
+	}
+	if(neighbors.pos_z != null) {
+		job.has_pos_z = true;
+		for(int y = 0; y < (int)CHUNK_HEIGHT; y++) {
+			for(int x = 0; x < (int)CHUNK_WIDTH; x++) {
+				job.pos_z[boundary_index(y, x)] =
+					neighbors.pos_z.blocks[coords_to_arr((Vec3i){x, y, 0})].type;
+			}
+		}
+	}
+	if(neighbors.neg_z != null) {
+		job.has_neg_z = true;
+		for(int y = 0; y < (int)CHUNK_HEIGHT; y++) {
+			for(int x = 0; x < (int)CHUNK_WIDTH; x++) {
+				job.neg_z[boundary_index(y, x)] =
+					neighbors.neg_z.blocks[coords_to_arr((Vec3i){x, y, (int)CHUNK_WIDTH - 1})].type;
+			}
+		}
+	}
+}
+
+fn BlockType neighbor_block_from_job(MeshJob* job, Vec3i local_pos, int dir) {
 	switch(dir) {
 		case 0: { // +Z
 			if(local_pos.z < (int)CHUNK_WIDTH - 1) {
-				n_local.z += 1;
-				return chunk.blocks[coords_to_arr(n_local)].type;
+				return job.blocks[coords_to_arr(local_pos + (Vec3i){0, 0, 1})].type;
 			}
-			n_chunk_pos.y += 1;
-			n_local.z = 0;
-			break;
+			if(!job.has_pos_z) return AIR;
+			return job.pos_z[boundary_index(local_pos.y, local_pos.x)];
 		}
 		case 1: { // -Z
 			if(local_pos.z > 0) {
-				n_local.z -= 1;
-				return chunk.blocks[coords_to_arr(n_local)].type;
+				return job.blocks[coords_to_arr(local_pos + (Vec3i){0, 0, -1})].type;
 			}
-			n_chunk_pos.y -= 1;
-			n_local.z = (int)CHUNK_WIDTH - 1;
-			break;
+			if(!job.has_neg_z) return AIR;
+			return job.neg_z[boundary_index(local_pos.y, local_pos.x)];
 		}
 		case 2: { // -X
 			if(local_pos.x > 0) {
-				n_local.x -= 1;
-				return chunk.blocks[coords_to_arr(n_local)].type;
+				return job.blocks[coords_to_arr(local_pos + (Vec3i){-1, 0, 0})].type;
 			}
-			n_chunk_pos.x -= 1;
-			n_local.x = (int)CHUNK_WIDTH - 1;
-			break;
+			if(!job.has_neg_x) return AIR;
+			return job.neg_x[boundary_index(local_pos.y, local_pos.z)];
 		}
 		case 3: { // +X
 			if(local_pos.x < (int)CHUNK_WIDTH - 1) {
-				n_local.x += 1;
-				return chunk.blocks[coords_to_arr(n_local)].type;
+				return job.blocks[coords_to_arr(local_pos + (Vec3i){1, 0, 0})].type;
 			}
-			n_chunk_pos.x += 1;
-			n_local.x = 0;
-			break;
+			if(!job.has_pos_x) return AIR;
+			return job.pos_x[boundary_index(local_pos.y, local_pos.z)];
 		}
 		case 4: { // +Y
 			if(local_pos.y < (int)CHUNK_HEIGHT - 1) {
-				n_local.y += 1;
-				return chunk.blocks[coords_to_arr(n_local)].type;
+				return job.blocks[coords_to_arr(local_pos + (Vec3i){0, 1, 0})].type;
 			}
 			return AIR;
 		}
 		case 5: { // -Y
 			if(local_pos.y > 0) {
-				n_local.y -= 1;
-				return chunk.blocks[coords_to_arr(n_local)].type;
+				return job.blocks[coords_to_arr(local_pos + (Vec3i){0, -1, 0})].type;
 			}
 			return AIR;
 		}
-		default: core::error("Unreachable Code reached inside neighbor_block");
+		default: core::error("Unreachable Code reached inside neighbor_block_from_job");
 	}
-
-	Chunk* neighbor_chunk = find_chunk(world, n_chunk_pos);
-	if(neighbor_chunk == null) return AIR;
-	return neighbor_chunk.blocks[coords_to_arr(n_local)].type;
+	core::error("Unreachable Code reached inside neighbour_block_from_job");
+	return AIR;
 }
 
-fn void Chunk.generate_chunk_mesh(&self, World *world) {
+fn MeshResult build_mesh_result(MeshJob* job) {
 	Listf chunk_vertices;
 	Listui chunk_indices;
 
-	chunk_vertices.tinit();
-	chunk_indices.tinit();
+	chunk_vertices.init(mem, 1024);
+	chunk_indices.init(mem, 1024);
 
-	for(int i = 0; i < self.blocks.len; i++) {
-		Block block = self.blocks[i];
+	for(int i = 0; i < job.blocks.len; i++) {
+		Block block = job.blocks[i];
 		Vec3i pos = arr_to_coords(i);
 		if(block.type == AIR) continue;
 
 		for (int d = 0; d < 6; d++) {
-			BlockType neighbor = neighbor_block(world, self, pos, d);
+			BlockType neighbor = neighbor_block_from_job(job, pos, d);
 
 			// Only draw exposed faces.
-			if(neighbor != AIR) {
-				continue;
-			}
+			if(neighbor != AIR) continue;
 
 			// Copy face template so we do not mutate the shared const vertex data.
 			float[gfx::CUBE_FLOAT_STRIDE * 4] new_slice = gfx::get_cube_face_vert(d);
@@ -220,9 +325,9 @@ fn void Chunk.generate_chunk_mesh(&self, World *world) {
 
 			// offset vertex and set texture
 			for(int p = 0; p < 4; p++) {
-				new_slice[p * gfx::CUBE_FLOAT_STRIDE + 0] += (float)(pos.x + self.pos.x * CHUNK_WIDTH);
+				new_slice[p * gfx::CUBE_FLOAT_STRIDE + 0] += (float)(pos.x + job.chunk_pos.x * (int)CHUNK_WIDTH);
 				new_slice[p * gfx::CUBE_FLOAT_STRIDE + 1] += (float)pos.y;
-				new_slice[p * gfx::CUBE_FLOAT_STRIDE + 2] += (float)(pos.z + self.pos.y * CHUNK_WIDTH);
+				new_slice[p * gfx::CUBE_FLOAT_STRIDE + 2] += (float)(pos.z + job.chunk_pos.y * (int)CHUNK_WIDTH);
 
 				new_slice[p * gfx::CUBE_FLOAT_STRIDE + 8] = TEXTURE_ATLAS[(int)block.type].inner[d];
 			}
@@ -237,13 +342,177 @@ fn void Chunk.generate_chunk_mesh(&self, World *world) {
 		}
 	}
 
-	float[] verts_arr = chunk_vertices.to_tarray();
-	uint[] idx_arr = chunk_indices.to_tarray();
-
-	self.mesh.make(verts_arr, idx_arr, gfx::CUBE_FLOAT_STRIDE);
+	float[] verts_arr = chunk_vertices.to_array(mem);
+	uint[] idx_arr = chunk_indices.to_array(mem);
 
 	chunk_indices.free();
 	chunk_vertices.free();
+
+	return {
+		.chunk = job.chunk,
+		.generation = job.generation,
+		.vertices = verts_arr,
+		.indices = idx_arr
+	};
+}
+
+fn void free_mesh_result(MeshResult* result) {
+	if(result.vertices.ptr != null) mem::free(result.vertices.ptr);
+	if(result.indices.ptr != null) mem::free(result.indices.ptr);
+	*result = {};
+}
+
+fn void apply_mesh_result(MeshResult* result) {
+	if(result.chunk == null) {
+		free_mesh_result(result);
+		return;
+	}
+	result.chunk.mesh.make(result.vertices, result.indices, gfx::CUBE_FLOAT_STRIDE);
+	free_mesh_result(result);
+}
+
+fn int mesh_worker_main(void* arg) {
+	MeshQueue* queue = (MeshQueue*)arg;
+	for(;;) {
+		queue.mutex.lock()!!;
+		while(queue.pending_count == 0 && !queue.stop_requested) {
+			queue.cond.wait(&queue.mutex)!!;
+		}
+		if(queue.stop_requested) {
+			queue.mutex.unlock()!!;
+			break;
+		}
+
+		queue.pending_count -= 1;
+		MeshJob* job = queue.pending[queue.pending_count];
+		job.chunk.mesh_queued = false;
+		job.chunk.mesh_building = true;
+		queue.mutex.unlock()!!;
+
+		MeshResult result = build_mesh_result(job);
+		mem::free(job);
+
+		queue.mutex.lock()!!;
+		if(queue.completed_count < MESH_RESULT_CAP) {
+			queue.completed[queue.completed_count] = result;
+			queue.completed_count += 1;
+		} else {
+			free_mesh_result(&result);
+			if(result.chunk != null) {
+				result.chunk.mesh_building = false;
+			}
+		}
+		queue.mutex.unlock()!!;
+	}
+	return 0;
+}
+
+<*
+ Starts the background mesh worker if it is not already running.
+*>
+fn void start_mesh_worker() {
+	if(g_mesh_queue.running) return;
+	g_mesh_queue.mutex.init()!!;
+	g_mesh_queue.cond.init()!!;
+	g_mesh_queue.running = true;
+	g_mesh_queue.stop_requested = false;
+	g_mesh_queue.pending_count = 0;
+	g_mesh_queue.completed_count = 0;
+	g_mesh_queue.worker.create(&mesh_worker_main, &g_mesh_queue)!!;
+}
+
+<*
+ Stops the background mesh worker and clears pending work.
+*>
+fn void shutdown_mesh_worker() {
+	if(!g_mesh_queue.running) return;
+	g_mesh_queue.mutex.lock()!!;
+	g_mesh_queue.stop_requested = true;
+	g_mesh_queue.cond.signal()!!;
+	g_mesh_queue.mutex.unlock()!!;
+
+	g_mesh_queue.worker.join()!!;
+	g_mesh_queue.mutex.lock()!!;
+	for(int i = 0; i < g_mesh_queue.pending_count; i++) {
+		mem::free(g_mesh_queue.pending[i]);
+	}
+	g_mesh_queue.pending_count = 0;
+	for(int i = 0; i < g_mesh_queue.completed_count; i++) {
+		free_mesh_result(&g_mesh_queue.completed[i]);
+	}
+	g_mesh_queue.completed_count = 0;
+	g_mesh_queue.mutex.unlock()!!;
+	g_mesh_queue.cond.destroy()!!;
+	g_mesh_queue.mutex.destroy()!!;
+	g_mesh_queue.running = false;
+}
+
+fn bool enqueue_chunk_mesh(World *world, Chunk* chunk) {
+	if(chunk == null) return false;
+	if(!chunk.dirty) return false;
+	if(chunk.mesh_queued || chunk.mesh_building) return false;
+
+	MeshJob* job = mem::new(MeshJob);
+	snapshot_chunk_job(job, world, chunk);
+
+	g_mesh_queue.mutex.lock()!!;
+	if(g_mesh_queue.pending_count >= MESH_JOB_CAP) {
+		g_mesh_queue.mutex.unlock()!!;
+		mem::free(job);
+		return false;
+	}
+	g_mesh_queue.pending[g_mesh_queue.pending_count] = job;
+	g_mesh_queue.pending_count += 1;
+	chunk.mesh_queued = true;
+	g_mesh_queue.cond.signal()!!;
+	g_mesh_queue.mutex.unlock()!!;
+	return true;
+}
+
+<*
+ Enqueues a limited number of dirty, visible chunks for mesh generation.
+*>
+fn int queue_visible_chunk_meshes(World *world, Vec3f camera_pos, int budget) {
+	if(budget <= 0) return 0;
+	int queued = 0;
+	for(int i = 0; i < world.chunks.len; i++) {
+		if(queued >= budget) break;
+		Chunk* chunk = world.chunks[i];
+		if(chunk == null) continue;
+		if(!chunk_in_render_range(chunk, camera_pos)) continue;
+		if(enqueue_chunk_mesh(world, chunk)) queued += 1;
+	}
+	return queued;
+}
+
+<*
+ Applies a limited number of completed mesh builds on the main thread.
+*>
+fn int apply_completed_meshes(int budget) {
+	if(budget <= 0) return 0;
+	int applied = 0;
+	for(int i = 0; i < budget; i++) {
+		g_mesh_queue.mutex.lock()!!;
+		if(g_mesh_queue.completed_count == 0) {
+			g_mesh_queue.mutex.unlock()!!;
+			break;
+		}
+		g_mesh_queue.completed_count -= 1;
+		MeshResult result = g_mesh_queue.completed[g_mesh_queue.completed_count];
+		g_mesh_queue.mutex.unlock()!!;
+
+		if(result.chunk == null || result.chunk.generation != result.generation) {
+			if(result.chunk != null) result.chunk.mesh_building = false;
+			free_mesh_result(&result);
+			continue;
+		}
+
+		result.chunk.mesh_building = false;
+		result.chunk.dirty = false;
+		apply_mesh_result(&result);
+		applied += 1;
+	}
+	return applied;
 }
 
 fn World generate_world() {
@@ -331,11 +600,25 @@ fn Chunk* take_recycled_chunk(Chunk*[REGION_SIZE * REGION_SIZE] recycled, int *c
 	return chunk;
 }
 
+fn void mark_chunk_dirty(Chunk* chunk) {
+	if(chunk == null) return;
+	chunk.dirty = true;
+}
+
+fn void mark_chunk_and_neighbors_dirty(World *world, Vec2i pos) {
+	mark_chunk_dirty(find_chunk(world, pos));
+	mark_chunk_dirty(find_chunk(world, {pos.x + 1, pos.y}));
+	mark_chunk_dirty(find_chunk(world, {pos.x - 1, pos.y}));
+	mark_chunk_dirty(find_chunk(world, {pos.x, pos.y + 1}));
+	mark_chunk_dirty(find_chunk(world, {pos.x, pos.y - 1}));
+}
+
 fn void init_world_chunk_window(World *world, Vec2i origin) {
 	for(int x = 0; x < (int)REGION_SIZE; x++) {
 		for(int y = 0; y < (int)REGION_SIZE; y++) {
 			Vec2i pos = {origin.x + x, origin.y + y};
 			world.chunks[(usz)(x * (int)REGION_SIZE + y)] = generate_chunk(pos);
+			mark_chunk_and_neighbors_dirty(world, pos);
 		}
 	}
 }
@@ -387,6 +670,7 @@ fn void update_world(World *world, Vec3f player_pos) {
 			if(chunk == null) chunk = generate_chunk(target);
 
 			new_chunks[idx] = chunk;
+			mark_chunk_and_neighbors_dirty(world, target);
 		}
 	}
 

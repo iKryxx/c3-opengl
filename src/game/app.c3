@@ -21,6 +21,9 @@ GLfloat delta_time = 0.0f;
 GLfloat last_frame = 0.0f;
 Camera cam;
 
+const int CHUNK_MESH_QUEUE_CAP = 4;
+const int CHUNK_MESH_APPLY_CAP = 2;
+
 <* 
  Keyboard input callback that updates the engine key state.
  @require key >= 0, key < platform::KEY_COUNT
@@ -73,7 +76,8 @@ fn void load_textures() {
 	String[] paths = {
 		"assets/blocks/dirt.tga",
 		"assets/blocks/grass_top.tga",
-		"assets/blocks/grass_side.tga"
+		"assets/blocks/grass_side.tga",
+		"assets/blocks/stone.tga"
 	};
 
 	arr = gfx::texture_array_create(16, 16, paths.len);
@@ -162,12 +166,13 @@ fn void bind_scene_shader(Mat4f view, Mat4f proj, Mat4f model) {
  Draws all resident chunks, generating meshes as needed.
 *>
 fn void draw_world() {
+	world::queue_visible_chunk_meshes(&world, cam.position, CHUNK_MESH_QUEUE_CAP);
+	world::apply_completed_meshes(CHUNK_MESH_APPLY_CAP);
 	for(int i = 0; i < world.chunks.len; i++) {
 		Chunk* chunk = world.chunks[i];
 		if(chunk == null) continue;
 		if(!world::chunk_in_render_range(chunk, cam.position)) continue;
-		if(chunk.dirty) chunk.generate_chunk_mesh(&world);
-		chunk.dirty = false;
+		if(chunk.mesh.count == 0) continue;
 		chunk.mesh.draw();
 	}
 }
@@ -274,9 +279,11 @@ fn int start(WindowConfig cfg) {
 	load_textures();
 
 	world = world::generate_world();
+	world::start_mesh_worker();
 
 	int exit_code = m_loop();
 
+	world::shutdown_mesh_worker();
 	world::unload_chunk(&world);
 
 	return exit_code;
